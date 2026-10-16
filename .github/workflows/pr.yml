@@ -23,12 +23,12 @@ permissions:
 
 jobs:
   # A small, fast job that enforces your branching convention: every PR's
-  # source branch must start with feature/, fix/, or hotfix/. It fails (exits
-  # non-zero) otherwise, which shows up as a red X on the PR.
+  # source branch must start with feature/, features/, fix/, or hotfix/. It
+  # fails (exits non-zero) otherwise, which shows up as a red X on the PR.
   branch-naming-convention:
     runs-on: ubuntu-latest
     steps:
-      - name: Verify source branch follows feature/* naming
+      - name: Verify source branch follows feature(s)/* naming
         # `github.head_ref` is a built-in variable holding the PR's source
         # branch name (e.g. "feature/my-change"). We copy it into a plain
         # shell env var first (instead of inlining ${{ }} straight into the
@@ -40,9 +40,9 @@ jobs:
         run: |
           echo "Source branch: $HEAD_REF"
           case "$HEAD_REF" in
-            feature/*|fix/*|hotfix/*) echo "Branch name OK" ;;
+            feature/*|features/*|fix/*|hotfix/*) echo "Branch name OK" ;;
             *)
-              echo "::error::Branch '$HEAD_REF' does not follow the required feature/*, fix/*, or hotfix/* naming convention."
+              echo "::error::Branch '$HEAD_REF' does not follow the required feature(s)/*, fix/*, or hotfix/* naming convention."
               exit 1
               ;;
           esac

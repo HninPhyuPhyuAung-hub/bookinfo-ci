@@ -59,7 +59,8 @@ jobs:
         with: # `with:` passes inputs/options into the action being used.
           python-version: "3.13"
           cache: pip # Caches pip's download cache between runs, keyed off requirements*.txt, so re-installs are faster.
-      - run: pip install -r requirements.txt -r test-requirements.txt
+      - run: pip install -r requirements.txt # installed first, matching the Dockerfile
+      - run: pip install -r test-requirements.txt # installed as a SEPARATE command - combining both into one `pip install -r a -r b` forces pip to resolve both files' pins together, which fails here because requirements.txt and test-requirements.txt pin conflicting certifi versions
       - run: python -m unittest discover tests/unit
 
   test-details:
@@ -121,10 +122,33 @@ jobs:
         language: [python, javascript-typescript, ruby, java-kotlin]
     steps:
       - uses: actions/checkout@v7
+      # Python/JavaScript/Ruby are interpreted, so CodeQL's generic
+      # `autobuild` step needs nothing extra for them. Java needs an actual
+      # compile, so for that one language we set up the exact same Java 17 +
+      # Gradle 8.13 toolchain as test-reviews uses (autobuild on its own
+      # picks a different/newer Gradle that chokes on this project's legacy
+      # `sourceCompatibility = 1.8` syntax).
+      - name: Set up Java (java-kotlin only)
+        if: matrix.language == 'java-kotlin'
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Gradle (java-kotlin only)
+        if: matrix.language == 'java-kotlin'
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "8.13"
       - uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }} # Reads the current matrix value for this parallel run.
-      - uses: github/codeql-action/autobuild@v4 # Tries to automatically compile the code so CodeQL can analyze it fully.
+      - name: Autobuild (non-Java languages)
+        if: matrix.language != 'java-kotlin' # Tries to automatically compile the code so CodeQL can analyze it fully.
+        uses: github/codeql-action/autobuild@v4
+      - name: Manual build (java-kotlin)
+        if: matrix.language == 'java-kotlin'
+        working-directory: reviews
+        run: gradle build
       - uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
