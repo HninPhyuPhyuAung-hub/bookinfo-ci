@@ -1,0 +1,56 @@
+# ============================================================================
+# This is the workflow that runs on every Pull Request targeting master.
+# Developer flow: branch off `feature/*`, push commits, open a PR -> this
+# file runs automatically. The two jobs below ("branch-naming-convention"
+# and "checks") must then be marked as REQUIRED STATUS CHECKS in GitHub's
+# branch protection settings for master, so the PR's merge button stays
+# disabled until both are green - see .github/workflows/README.md for the
+# exact steps (this is configured in the GitHub UI, not in this YAML file).
+# ============================================================================
+
+name: Pull Request Checks
+
+# `on.pull_request.branches: [master]` = only run this workflow for PRs whose
+# TARGET/base branch is `master` (regardless of what the source branch is
+# called). It re-runs automatically on every new commit pushed to the PR.
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  # A small, fast job that enforces your branching convention: every PR's
+  # source branch must start with feature/, fix/, or hotfix/. It fails (exits
+  # non-zero) otherwise, which shows up as a red X on the PR.
+  branch-naming-convention:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify source branch follows feature/* naming
+        # `github.head_ref` is a built-in variable holding the PR's source
+        # branch name (e.g. "feature/my-change"). We copy it into a plain
+        # shell env var first (instead of inlining ${{ }} straight into the
+        # `run:` script) because branch names come from whoever opened the
+        # PR and could contain shell metacharacters - routing untrusted
+        # values through env vars avoids any script-injection risk.
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          echo "Source branch: $HEAD_REF"
+          case "$HEAD_REF" in
+            feature/*|fix/*|hotfix/*) echo "Branch name OK" ;;
+            *)
+              echo "::error::Branch '$HEAD_REF' does not follow the required feature/*, fix/*, or hotfix/* naming convention."
+              exit 1
+              ;;
+          esac
+
+  # This is how you CALL a reusable workflow: `uses:` points at the other
+  # YAML file's path (instead of `uses: some-action@version` like a normal
+  # step). `secrets: inherit` forwards every secret available to THIS
+  # workflow down into ci-checks.yml, in case any of its jobs need one.
+  checks:
+    uses: ./.github/workflows/ci-checks.yml
+    secrets: inherit
