@@ -1,0 +1,95 @@
+# Local test harness for the bookinfo sample (team1).
+#
+# Usage:
+#   docker compose up --build
+#   open http://localhost:9080/productpage
+#
+# Each service image is built once from its local Dockerfile; the "version"
+# behavior (details/ratings/reviews) is controlled purely via environment
+# variables at runtime, so you can change SERVICE_VERSION/ENABLE_RATINGS/etc.
+# below and just `docker compose up` again without rebuilding.
+#
+# Optional: bring up a database-backed ratings service with
+#   docker compose --profile mongo up --build
+#   docker compose --profile mysql up --build
+# (see the ratings-mongo / ratings-mysql services for wiring details).
+
+services:
+  productpage:
+    build:
+      context: ./productpage
+    image: bookinfo/productpage:team1
+    container_name: productpage
+    ports:
+      - "9080:9080"
+    environment:
+      FLOOD_FACTOR: "0"
+    depends_on:
+      - details
+      - reviews
+
+  details:
+    build:
+      context: ./details
+    image: bookinfo/details:team1
+    container_name: details
+    ports:
+      - "9081:9080"
+    environment:
+      SERVICE_VERSION: v1
+      ENABLE_EXTERNAL_BOOK_SERVICE: "false"
+
+  ratings:
+    build:
+      context: ./ratings
+    image: bookinfo/ratings:team1
+    container_name: ratings
+    ports:
+      - "9082:9080"
+    environment:
+      # Switch to v2 / v-faulty / v-delayed / v-unavailable / v-unhealthy to
+      # exercise the other code paths in ratings.js.
+      SERVICE_VERSION: v1
+
+  reviews:
+    build:
+      context: ./reviews
+    image: bookinfo/reviews:team1
+    container_name: reviews
+    ports:
+      - "9083:9080"
+    environment:
+      # Switch SERVICE_VERSION to v1 (no ratings/stars) or v3 (red stars).
+      SERVICE_VERSION: v2
+      ENABLE_RATINGS: "true"
+      STAR_COLOR: black
+    depends_on:
+      - ratings
+
+  # --- Optional: database-backed ratings (v2) ---------------------------
+  # Bring up with: docker compose --profile mongo up --build
+  # Then point the ratings service at it, e.g.:
+  #   SERVICE_VERSION=v2 DB_TYPE=mongodb MONGO_DB_URL=mongodb://mongodb:27017 ratings
+  mongodb:
+    build:
+      context: ./mongodb
+    image: bookinfo/mongodb:team1
+    container_name: mongodb
+    profiles: ["mongo"]
+    ports:
+      - "27017:27017"
+
+  # Bring up with: docker compose --profile mysql up --build
+  # Then point the ratings service at it, e.g.:
+  #   SERVICE_VERSION=v2 DB_TYPE=mysql MYSQL_DB_HOST=mysqldb MYSQL_DB_PORT=3306
+  #   MYSQL_DB_USER=root MYSQL_DB_PASSWORD=password ratings
+  mysqldb:
+    build:
+      context: ./mysql
+    image: bookinfo/mysqldb:team1
+    container_name: mysqldb
+    profiles: ["mysql"]
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+    ports:
+      - "3306:3306"

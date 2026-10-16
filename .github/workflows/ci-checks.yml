@@ -1,0 +1,154 @@
+# ============================================================================
+# WHAT IS THIS FILE?
+# A GitHub Actions "workflow" is just a YAML file under .github/workflows/
+# that tells GitHub "when X happens, run these jobs". This particular
+# workflow is special: instead of being triggered directly by GitHub events,
+# it's a *reusable workflow* (see `on: workflow_call` below) that OTHER
+# workflow files call into with `uses: ./.github/workflows/ci-checks.yml`.
+# We do this so pr.yml (runs on every PR) and release.yml (runs after merge
+# to master) both execute the *exact same* tests/scans, instead of us having
+# to copy-paste the same jobs into two files and keep them in sync by hand.
+# ============================================================================
+
+name: CI Checks # Shown as the workflow's display name in the GitHub "Actions" tab.
+
+# `on:` defines the trigger(s) that start this workflow. Normally you'd see
+# things like `on: push` or `on: pull_request` here. `workflow_call` means
+# "don't trigger this on its own — only run when another workflow calls me",
+# which is what makes this a reusable/shared workflow.
+on:
+  workflow_call:
+
+# `permissions:` controls what the automatic GITHUB_TOKEN (a short-lived
+# token GitHub injects into every run) is allowed to do against your repo.
+# We keep it minimal (read-only checkout) except for the one extra write
+# scope CodeQL needs to publish its findings to the "Security" tab.
+permissions:
+  contents: read
+  security-events: write # required for CodeQL to upload results
+
+# `jobs:` is a map of named jobs. By default ALL jobs in a workflow run in
+# PARALLEL, each on its own brand-new virtual machine ("runner"), unless you
+# link them with `needs:` (see release.yml for an example of that). Below we
+# have 5 independent jobs: 4 unit-test jobs (one per microservice, since each
+# is written in a different language), plus CodeQL for static/security
+# analysis (SonarQube/SonarCloud was considered but dropped since this repo
+# doesn't need a paid plan just to run CI checks - CodeQL is free and
+# built into GitHub, no account/billing required).
+jobs:
+  # ---------------------------------------------------------------------
+  # Unit tests, one job per service (only services with real test suites
+  # actually run tests; the others are syntax/dependency-resolution checks).
+  # ---------------------------------------------------------------------
+  test-productpage:
+    runs-on: ubuntu-latest # The OS/VM image GitHub spins up to run this job's steps.
+    # `defaults.run.working-directory` just means "cd into this folder before
+    # every `run:` step in this job", so we don't have to repeat `cd productpage`
+    # on every line. This repo has 4 microservices in subfolders, so each
+    # test job points at its own one.
+    defaults:
+      run:
+        working-directory: productpage
+    # `steps:` runs top-to-bottom, in order, on the SAME runner/VM, so later
+    # steps can see files created by earlier ones. Each step is either:
+    #   - `uses:`  run someone else's pre-built Action (reusable step), or
+    #   - `run:`   run a raw shell command yourself.
+    steps:
+      - uses: actions/checkout@v7 # Downloads your repo's code onto the runner. Almost every job needs this first.
+      - uses: actions/setup-python@v7 # Installs Python onto the runner and puts it on PATH.
+        with: # `with:` passes inputs/options into the action being used.
+          python-version: "3.13"
+          cache: pip # Caches pip's download cache between runs, keyed off requirements*.txt, so re-installs are faster.
+      - run: pip install -r requirements.txt # installed first, matching the Dockerfile
+      - run: pip install -r test-requirements.txt # installed as a SEPARATE command - combining both into one `pip install -r a -r b` forces pip to resolve both files' pins together, which fails here because requirements.txt and test-requirements.txt pin conflicting certifi versions
+      - run: python -m unittest discover tests/unit
+
+  test-details:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: details
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ruby/setup-ruby@v1.329.0
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true # Automatically runs `bundle install` and caches the installed gems.
+      - run: ruby -c details.rb # no spec suite exists yet; syntax-check as a baseline gate
+
+  test-ratings:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ratings
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "23"
+          cache: npm # Caches ~/.npm between runs, keyed off the lock file below, so `npm ci` is faster on repeat runs.
+          cache-dependency-path: ratings/package-lock.json
+      - run: npm ci # Like `npm install`, but strictly follows package-lock.json - faster and fully reproducible.
+      - run: node --check ratings.js # no test suite exists yet; syntax-check as a baseline gate
+
+  test-reviews:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: reviews
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "8.13" # matches the gradle:8.13.0-jdk8 builder stage in reviews/Dockerfile
+      - run: gradle build # Compiles the Java code AND runs its JUnit tests (same as the Dockerfile does).
+
+  # ---------------------------------------------------------------------
+  # SAST: GitHub CodeQL, one language per job
+  # ---------------------------------------------------------------------
+  codeql:
+    runs-on: ubuntu-latest
+    # `strategy.matrix` is how you run the SAME job multiple times with
+    # different variable values, in parallel, without copy-pasting the job
+    # 4 times. Here it spins up 4 separate runners, one per language, each
+    # with `matrix.language` set to a different value from the list.
+    strategy:
+      fail-fast: false # Without this, GitHub cancels all other matrix runs the moment ONE of them fails. We want all 4 languages scanned regardless.
+      matrix:
+        language: [python, javascript-typescript, ruby, java-kotlin]
+    steps:
+      - uses: actions/checkout@v7
+      # Python/JavaScript/Ruby are interpreted, so CodeQL's generic
+      # `autobuild` step needs nothing extra for them. Java needs an actual
+      # compile, so for that one language we set up the exact same Java 17 +
+      # Gradle 8.13 toolchain as test-reviews uses (autobuild on its own
+      # picks a different/newer Gradle that chokes on this project's legacy
+      # `sourceCompatibility = 1.8` syntax).
+      - name: Set up Java (java-kotlin only)
+        if: matrix.language == 'java-kotlin'
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Gradle (java-kotlin only)
+        if: matrix.language == 'java-kotlin'
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "8.13"
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }} # Reads the current matrix value for this parallel run.
+      - name: Autobuild (non-Java languages)
+        if: matrix.language != 'java-kotlin' # Tries to automatically compile the code so CodeQL can analyze it fully.
+        uses: github/codeql-action/autobuild@v4
+      - name: Manual build (java-kotlin)
+        if: matrix.language == 'java-kotlin'
+        working-directory: reviews
+        run: gradle build
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"
