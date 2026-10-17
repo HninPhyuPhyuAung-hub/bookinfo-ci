@@ -1,0 +1,28 @@
+# Trivy ignore list for findings that cannot be remediated by this repo.
+#
+# Each entry below is a CRITICAL finding where the upstream vendor has
+# explicitly marked the issue "will_not_fix" for the Debian release our base
+# images are built on - there is no patched package version to upgrade to,
+# so `apt-get upgrade` can never resolve it. Re-check periodically in case
+# that changes; see the linked advisory for the current vendor status.
+
+# zlib1g on Debian 12 (bookworm) - affects details, productpage, ratings
+# (all Debian "slim" base images). Debian Security Tracker marks this
+# will_not_fix for bookworm as of this writing.
+# https://avd.aquasec.com/nvd/cve-2023-45853
+CVE-2023-45853
+
+# libsqlite3-0 on Debian 12 (bookworm) - affects productpage. No patched
+# package version exists yet for this Debian release (Trivy reports status
+# "affected" with no Fixed Version) - nothing to upgrade to.
+# https://avd.aquasec.com/nvd/cve-2025-7458
+CVE-2025-7458
+
+# gosu (a small Go-based privilege-drop tool baked into the official mysql
+# and mongo Docker images) is compiled against an older Go stdlib with this
+# CVE. Confirmed present even on mysql:latest and the newest available
+# mongo:8.x tag as of this writing - Docker's official images haven't been
+# rebuilt with a patched Go toolchain yet. We don't control gosu's build
+# process from our Dockerfile; re-check when newer tags are published.
+# https://avd.aquasec.com/nvd/cve-2025-68121
+CVE-2025-68121

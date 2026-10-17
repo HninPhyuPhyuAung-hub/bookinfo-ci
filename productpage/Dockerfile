@@ -14,6 +14,14 @@
 
 FROM python:3.13.3-slim
 
+# Pull in the latest Debian security patches (e.g. libgnutls30 CVE-2026-33845)
+# on top of this pinned base image, since the base image tag itself isn't
+# rebuilt every time Debian ships a security update.
+#hadolint ignore=DL3008
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /
 
 COPY requirements.txt ./

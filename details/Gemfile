@@ -1,4 +1,14 @@
 source 'https://rubygems.org'
 
 gem "webrick", "~> 1.7"
-
+# net-imap ships as a Ruby "default gem" bundled with the interpreter itself.
+# The version bundled with ruby:3.4.3-slim (0.5.6) has CVE-2026-42257
+# (critical). Pinning it explicitly here makes bundler install a patched
+# version that shadows the vulnerable default gem.
+gem "net-imap", "~> 0.5.14"
+# net-imap depends on "date" with no version constraint; without this pin
+# bundler resolves the newest "date" release, which ships a native C
+# extension requiring build tools not present in the slim image. 3.4.1 is
+# already bundled with Ruby 3.4.3 as a default gem, so no extension needs
+# to be compiled.
+gem "date", "3.4.1"

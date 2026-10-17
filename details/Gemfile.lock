@@ -1,14 +1,22 @@
 GEM
   remote: https://rubygems.org/
   specs:
-    webrick (1.8.2)
+    date (3.4.1)
+    net-imap (0.5.15)
+      date
+      net-protocol
+    net-protocol (0.4.0)
+      timeout
+    timeout (0.6.1)
+    webrick (1.9.2)
 
 PLATFORMS
-  aarch64-linux
   ruby
   x86_64-linux
 
 DEPENDENCIES
+  date (= 3.4.1)
+  net-imap (~> 0.5.14)
   webrick (~> 1.7)
 
 BUNDLED WITH
